@@ -1,0 +1,95 @@
+---
+  - name: graphite | install system packages
+    apt: pkg=$item state=present
+    with_items:
+      - apache2
+      - libapache2-mod-wsgi
+      - libcairo2-dev
+      - libmysqlclient-dev
+      - mysql-client
+      - mysql-server
+      - memcached
+      - python
+      - python-cairo-dev
+      - python-dev
+      - python-mysqldb
+      - python-pip
+      - python-setuptools
+      - python-software-properties
+
+  - name: pip | install virtualenv module
+    pip: name=virtualenv state=present
+
+  - name: virtualenv | create virtualenv for graphite
+    command: virtualenv --no-site-packages /opt/graphite creates=/opt/graphite/bin/activate
+
+  #python-cairo cannot be installed into a virtualenv
+  - name: link python cairo into env
+    file: path=/opt/graphite/lib/python2.7/site-packages/cairo src=/usr/lib/python2.7/dist-packages/cairo state=link
+
+  - name: install django
+    pip: name=django version=1.4 virtualenv=/opt/graphite state=present
+
+  - name: graphite | install packages
+    pip: name=$item state=present virtualenv=/opt/graphite
+    with_items:
+      - carbon
+      - django-tagging
+      - MySQL-python
+      - python-memcached
+      - Twisted
+      - whisper
+      - graphite-web
+
+  - name: graphite | settings
+    copy: src=files/local_settings.py dest=/opt/graphite/webapp/graphite/local_settings.py
+
+  - name: graphite | config files
+    copy: src=files/conf/$item dest=/opt/graphite/conf/$item
+    with_items:
+      - carbon.conf
+      - dashboard.conf
+      - graphite.wsgi
+      - storage-schemas.conf
+
+  - name: init for carbon-cache
+    copy: src=files/carbon-cache.upstart dest=/etc/init/carbon-cache.conf mode=644
+
+  - name: graphite | set permissions
+    file: path=/opt/graphite owner=root group=www-data mode=775 state=directory recurse=yes
+
+  - name: graphite | create mysql database
+    mysql_db: name=graphite login_user=root login_password=$mysql_root_password
+
+  - name: graphite | create mysql user
+    mysql_user: name=graphite password=graphite priv=graphite.*:ALL login_user=root login_password=$mysql_root_password
+
+  - name: create apache run dir for wsgi socket
+    file: path=/etc/apache2/run state=directory
+
+  - name: django | initial data
+    copy: src=files/django.json dest=/opt/graphite/webapp/graphite/initial_data.json
+
+  - name: django | syncdb
+    django_manage: >
+      command=syncdb
+      virtualenv=/opt/graphite
+      app_path=/opt/graphite/webapp/graphite
+
+  - name: django | remove initial data
+    file: path=/opt/graphite/webapp/graphite/initial_data.json state=absent
+
+  - name: disable default vhost
+    command: a2dissite default
+
+  - name: create vhost
+    copy: src=files/vhost dest=/etc/apache2/sites-available/graphite mode=644
+
+  - name: enable vhost
+    command: a2ensite graphite
+
+  - name: restart apache
+    command: apachectl restart
+
+  - name: start carbon-cache
+    service: name=carbon-cache state=started

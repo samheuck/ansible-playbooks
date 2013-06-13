@@ -1,0 +1,14 @@
+---
+- hosts: $hosts
+  user: $user
+  sudo: true
+  gather_facts: no
+
+  vars:
+    mysql_root_password: ''
+
+  tasks:
+    - name: apt-get update
+      apt: update_cache=yes
+
+    - include: setup.yml
